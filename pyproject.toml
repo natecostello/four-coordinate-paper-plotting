@@ -40,6 +40,7 @@ where = ["src"]
 
 [tool.setuptools_scm]
 write_to = "src/fcp_plotting/_version.py"
+fallback_version = "0.1.0"
 
 [project.optional-dependencies]
 test = [
