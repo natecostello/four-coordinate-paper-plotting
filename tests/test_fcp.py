@@ -431,6 +431,51 @@ class TestFCP(unittest.TestCase):
                     self.assertLessEqual(y_pos, ylim[1] + y_margin,
                         f"Label '{text.get_text()}' positioned too high in {description}")
 
+    def test_label_zorder_parameter(self):
+        """Test that label_zorder parameter correctly sets z-order for text labels."""
+        fig, ax = plt.subplots()
+        ax.set_xlim(1, 1000)
+        ax.set_ylim(1e-3, 10)
+        
+        # Test default behavior (no zorder specified)
+        fcp(ax, v_unit='m/s')
+        default_texts = [child for child in ax.get_children() if hasattr(child, 'get_text')]
+        
+        # Clear and test with explicit zorder
+        ax.clear()
+        ax.set_xlim(1, 1000)
+        ax.set_ylim(1e-3, 10)
+        test_zorder = 5
+        fcp(ax, v_unit='m/s', label_zorder=test_zorder)
+        
+        # Check that text labels have the specified zorder
+        text_labels = [child for child in ax.get_children() 
+                      if hasattr(child, 'get_text') and child.get_text().strip()]
+        
+        # Should have some labels
+        self.assertGreater(len(text_labels), 0, "No text labels found after fcp() call")
+        
+        # All labels should have the specified zorder
+        for text in text_labels:
+            if any(unit in text.get_text() for unit in ['g', 'm']):  # FCP labels
+                self.assertEqual(text.get_zorder(), test_zorder,
+                    f"Label '{text.get_text()}' has zorder {text.get_zorder()}, expected {test_zorder}")
+        
+        # Test that None (default) doesn't set zorder explicitly
+        ax.clear()
+        ax.set_xlim(1, 1000)
+        ax.set_ylim(1e-3, 10)
+        fcp(ax, v_unit='m/s', label_zorder=None)
+        
+        text_labels_default = [child for child in ax.get_children() 
+                              if hasattr(child, 'get_text') and child.get_text().strip()]
+        
+        # With None, labels should have matplotlib's default zorder (not our custom value)
+        for text in text_labels_default:
+            if any(unit in text.get_text() for unit in ['g', 'm']):  # FCP labels
+                self.assertNotEqual(text.get_zorder(), test_zorder,
+                    f"Label '{text.get_text()}' should not have custom zorder when label_zorder=None")
+
 
 if __name__ == "__main__":
     unittest.main()

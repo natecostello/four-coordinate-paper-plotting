@@ -64,6 +64,7 @@ def fcp(
     ax: Optional[Axes] = None,
     *,
     v_unit: str = "in/s",
+    label_zorder: Optional[int] = None,
 ) -> Axes:
     """
     Configure matplotlib axes for Four-Coordinate Paper (FCP) pseudo-velocity plots.
@@ -83,6 +84,11 @@ def fcp(
         Supported values:
         - 'in/s', 'ips' : Uses inches for displacement labels
         - 'm/s', 'ms', 'mps' : Uses meters for displacement labels
+    label_zorder : int, optional
+        Z-order for reference line labels. Higher values place labels above other 
+        plot elements. If None (default), uses matplotlib's default z-order, which 
+        may cause labels to be hidden behind data traces. Recommended value: 5 for 
+        labels above most plot elements but below legends.
 
     Returns
     -------
@@ -139,6 +145,17 @@ def fcp(
     >>> ax.set_xlim(1, 1000)
     >>> ax.set_ylim(1e-2, 100)
     >>> fcp(ax, v_unit='in/s')
+    >>> plt.show()
+
+    Ensure labels appear above data traces:
+
+    >>> fig, ax = plt.subplots(figsize=(7, 5))
+    >>> ax.set_xlim(1, 1000)
+    >>> ax.set_ylim(1e-3, 10)
+    >>> fcp(ax, v_unit='m/s', label_zorder=5)  # Labels on top
+    >>> # Thick data lines won't hide the reference labels
+    >>> ax.loglog(f, pv, 'r-', linewidth=5, label='Heavy Data')
+    >>> ax.legend()
     >>> plt.show()
     """
 
@@ -299,6 +316,10 @@ def fcp(
     # Match reference lines to grid aesthetics by default
     lk = {"color": "0.8", "lw": 0.6, "ls": ":", "zorder": 0}
     tk = {"color": "0.35", "fontsize": 8, "ha": "center", "va": "center"}
+    
+    # Add zorder for labels if specified
+    if label_zorder is not None:
+        tk["zorder"] = label_zorder
 
     # Plot all acceleration lines across full x-range
     for a in acc_levels_all:
