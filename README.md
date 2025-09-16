@@ -57,6 +57,26 @@ ax.legend()
 plt.show()
 ```
 
+### Important Usage Notes
+
+**Call `fcp()` AFTER setting axis limits.** The function uses the current axis limits to position reference lines and labels appropriately.
+
+```python
+# ✅ Correct order:
+fig, ax = plt.subplots()
+ax.set_xlim(0.1, 5000)     # Set limits first
+ax.set_ylim(0.1, 1000)  
+fcp(ax, v_unit='in/s')     # Call fcp() after limits are set
+
+# ❌ Incorrect order:
+fig, ax = plt.subplots()
+fcp(ax, v_unit='in/s')     # Called too early - uses default limits
+ax.set_xlim(0.1, 5000)     # Limits set after fcp() won't be used
+ax.set_ylim(0.1, 1000)
+```
+
+This is a typical matplotlib workflow: establish your plot area first, then add annotations and formatting.
+
 What this gives you
 -------------------
 

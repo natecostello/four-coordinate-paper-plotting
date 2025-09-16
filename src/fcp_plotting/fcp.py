@@ -105,6 +105,13 @@ def fcp(
     - Displacement labels appear on the left edge in base length units
     - Label rotations automatically adjust to match diagonal line angles
     - Multiple calls to this function will add additional reference lines
+    
+    .. important::
+       This function must be called **after** setting axis limits with
+       `ax.set_xlim()` and `ax.set_ylim()`. The function uses the current
+       axis limits to determine reference line placement and labeling.
+       Calling `fcp()` before setting limits may result in incorrect or
+       missing reference lines.
 
     Examples
     --------
@@ -207,20 +214,75 @@ def fcp(
     # Store label angle update info so we can recompute after layout changes
     rot_items: List[Tuple[Text, float]] = []  # list of (Text, slope_m)
 
-    # Helper: nudge label upward in display space (pixels)
+    # Helper: nudge label upward in display space (pixels)  
     def _nudge_up(x: float, y: float, pixels: float = 10.0) -> float:
         """Nudge a point upward by specified pixels in display space."""
         p = ax.transData.transform((x, y))
         p[1] += pixels
         y2 = ax.transData.inverted().transform(p)[1]
-        return min(y2, vmax / 1.02)
+        return y2
+    
+    # Helper: check if label position is within bounds with buffer for text size
+    def _is_label_within_bounds(x: float, y: float, xlim: Tuple[float, float], ylim: Tuple[float, float]) -> bool:
+        """
+        Check if a label position is within the axes bounds with buffer for text size.
+        
+        Args:
+            x, y: Label position in data coordinates
+            xlim, ylim: Axes limits (min, max)
+        
+        Returns:
+            True if label (including text) will fit within bounds, False otherwise
+        """
+        # Add buffer to account for text size (especially for rotated text)
+        # Use log-space calculations for log axes
+        log_x_range = math.log10(xlim[1]) - math.log10(xlim[0])
+        log_y_range = math.log10(ylim[1]) - math.log10(ylim[0])
+        
+        # Buffer: very small percentage of range in log space (converted back to linear)
+        x_buffer_factor = 10**(0.01 * log_x_range)  # 1% buffer  
+        y_buffer_factor = 10**(0.02 * log_y_range)  # 2% buffer for y due to text height
+        
+        x_min_buffered = xlim[0] * x_buffer_factor
+        x_max_buffered = xlim[1] / x_buffer_factor
+        y_min_buffered = ylim[0] * y_buffer_factor  
+        y_max_buffered = ylim[1] / y_buffer_factor
+        
+        return (x_min_buffered <= x <= x_max_buffered and 
+                y_min_buffered <= y <= y_max_buffered)
+        
+        # Clamp in log space with margins
+        log_x_clamped = max(log_fmin + x_margin_factor, min(log_x, log_fmax - x_margin_factor))
+        log_y_clamped = max(log_vmin + y_margin_factor, min(log_y, log_vmax - y_margin_factor))
+        
+        # Convert back to linear space
+        x_clamped = 10 ** log_x_clamped
+        y_clamped = 10 ** log_y_clamped
+        
+        return x_clamped, y_clamped
 
-    # Determine dynamic level envelopes using geometric-mean frequency.
-    f_ref = math.sqrt(fmin * fmax)
-    a_min = 2 * math.pi * f_ref * vmin
-    a_max = 2 * math.pi * f_ref * vmax
-    d_min = vmin / (2 * math.pi * f_ref)
-    d_max = vmax / (2 * math.pi * f_ref)
+    # Determine dynamic level envelopes over the full frequency range.
+    # For acceleration lines (a = 2πfv), we need the full range of accelerations
+    # that intersect the plot area at any frequency within [fmin, fmax]
+    a_candidates = [
+        2 * math.pi * fmin * vmin,  # Bottom-left corner
+        2 * math.pi * fmin * vmax,  # Top-left corner  
+        2 * math.pi * fmax * vmin,  # Bottom-right corner
+        2 * math.pi * fmax * vmax,  # Top-right corner
+    ]
+    a_min = min(a_candidates)
+    a_max = max(a_candidates)
+    
+    # For displacement lines (d = v/(2πf)), we need the full range of displacements
+    # that intersect the plot area at any frequency within [fmin, fmax]
+    d_candidates = [
+        vmin / (2 * math.pi * fmax),  # Bottom-left corner (smallest d)
+        vmin / (2 * math.pi * fmin),  # Bottom-right corner
+        vmax / (2 * math.pi * fmax),  # Top-left corner
+        vmax / (2 * math.pi * fmin),  # Top-right corner (largest d)
+    ]
+    d_min = min(d_candidates)
+    d_max = max(d_candidates)
 
     # Acceleration levels (majors for labels, all for lines)
     G_lo, G_hi = a_min / g0, a_max / g0
@@ -246,14 +308,22 @@ def fcp(
 
     # Label acceleration decades at right edge
     for a, n_exp in acc_label_vals:
+        # Position close to right edge
         f_right = 10 ** (math.log10(fmax) - 0.02 * (math.log10(fmax) - math.log10(fmin)))
         v_right = a / (2 * math.pi * f_right)
         if not (vmin <= v_right <= vmax):
             continue
-        f_label, v_label = f_right, _nudge_up(f_right, v_right)
+        
+        # Nudge up and check if within bounds
+        v_nudged = _nudge_up(f_right, v_right)
+        
+        # Skip this label if nudged position would be outside bounds
+        if not _is_label_within_bounds(f_right, v_nudged, (fmin, fmax), (vmin, vmax)):
+            continue
+            
         ang = _display_angle_for_slope(-1.0)
         tkwargs = {k: v for k, v in tk.items() if k not in {"ha", "va"}}
-        txt = ax.text(f_label, v_label, rf"$10^{{{n_exp}}}$ g", rotation=ang, ha="right", va="center", **tkwargs)
+        txt = ax.text(f_right, v_nudged, rf"$10^{{{n_exp}}}$ g", rotation=ang, ha="right", va="center", **tkwargs)
         try:
             txt.set_transform_rotates_text(False)
             txt.set_rotation_mode('anchor')
@@ -269,14 +339,22 @@ def fcp(
 
     # Label displacement decades at left edge
     for d, n_exp in disp_label_vals:
+        # Position close to left edge  
         f_left = 10 ** (math.log10(fmin) + 0.02 * (math.log10(fmax) - math.log10(fmin)))
         v_left = 2 * math.pi * f_left * d
         if not (vmin <= v_left <= vmax):
             continue
-        f_label, v_label = f_left, _nudge_up(f_left, v_left)
+        
+        # Nudge up and check if within bounds
+        v_nudged = _nudge_up(f_left, v_left)
+        
+        # Skip this label if nudged position would be outside bounds
+        if not _is_label_within_bounds(f_left, v_nudged, (fmin, fmax), (vmin, vmax)):
+            continue
+            
         ang = _display_angle_for_slope(+1.0)
         tkwargs = {k: v for k, v in tk.items() if k not in {"ha", "va"}}
-        txt = ax.text(f_label, v_label, rf"$10^{{{n_exp}}}$ {disp_unit_name}", rotation=ang, ha="left", va="center", **tkwargs)
+        txt = ax.text(f_left, v_nudged, rf"$10^{{{n_exp}}}$ {disp_unit_name}", rotation=ang, ha="left", va="center", **tkwargs)
         try:
             txt.set_transform_rotates_text(False)
             txt.set_rotation_mode('anchor')

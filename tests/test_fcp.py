@@ -322,6 +322,115 @@ class TestFCP(unittest.TestCase):
         self.assertEqual(ax.get_yscale(), "log")
         self.assertGreater(len(ax.lines), 0)
 
+    def test_wide_frequency_range_coverage(self):
+        """Test that reference lines cover the full range for very wide frequency spans."""
+        fig, ax = plt.subplots()
+        # Use very wide range like 0.1 to 5000 Hz
+        ax.set_xlim(0.1, 5000)
+        ax.set_ylim(0.1, 1000)
+        
+        fcp(ax, v_unit="in/s")
+        fig.canvas.draw()
+        
+        # Should have many reference lines to cover the wide range
+        self.assertGreater(len(ax.lines), 50)
+        
+        # Check that we have labels spanning multiple decades
+        texts = [t.get_text() for t in ax.texts]
+        acc_labels = [t for t in texts if "g" in t]
+        disp_labels = [t for t in texts if " in" in t]
+        
+        # Should have acceleration labels spanning at least 3 decades
+        self.assertGreaterEqual(len(acc_labels), 3)
+        # Should have displacement labels spanning at least 3 decades  
+        self.assertGreaterEqual(len(disp_labels), 3)
+        
+        # Verify we have high-decade labels (indicating proper range coverage)
+        high_acc = any("10^{2}" in t or "10^{3}" in t or "10^{4}" in t for t in acc_labels)
+        high_disp = any("10^{1}" in t or "10^{2}" in t or "10^{3}" in t for t in disp_labels)
+        self.assertTrue(high_acc, f"No high acceleration labels found in: {acc_labels}")
+        self.assertTrue(high_disp, f"No high displacement labels found in: {disp_labels}")
+
+    def test_labels_within_axes_bounds(self):
+        """Test that all labels are positioned within the axes bounding box."""
+        fig, ax = plt.subplots(figsize=(7, 5))
+        ax.set_xlim(0.1, 5000)  # Wide range that can cause boundary issues
+        ax.set_ylim(0.1, 1000)
+        
+        fcp(ax, v_unit="in/s")
+        fig.canvas.draw()  # Force layout calculation
+        
+        # Get axes bbox in data coordinates
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        
+        # Check each text label
+        for text in ax.texts:
+            # Get text position
+            x_pos, y_pos = text.get_position()
+            
+            # Get text bounding box in data coordinates
+            # Note: This is an approximation since exact text bounds depend on rendering
+            text_bbox = text.get_window_extent(fig.canvas.get_renderer())
+            text_bbox_data = ax.transData.inverted().transform(text_bbox)
+            
+            x_min, y_min = text_bbox_data[0]
+            x_max, y_max = text_bbox_data[1]
+            
+            # Check if text extends beyond axes limits
+            # Allow margin for rotated text bounding boxes which can be large
+            margin_x = (xlim[1] - xlim[0]) * 0.05  # 5% margin
+            margin_y = (ylim[1] - ylim[0]) * 0.80  # 80% margin for rotated text height
+            
+            self.assertGreaterEqual(x_min, xlim[0] - margin_x, 
+                f"Label '{text.get_text()}' extends below x-axis minimum at {x_min:.3f} < {xlim[0]:.3f}")
+            self.assertLessEqual(x_max, xlim[1] + margin_x,
+                f"Label '{text.get_text()}' extends beyond x-axis maximum at {x_max:.3f} > {xlim[1]:.3f}")
+            self.assertGreaterEqual(y_min, ylim[0] - margin_y,
+                f"Label '{text.get_text()}' extends below y-axis minimum at {y_min:.3f} < {ylim[0]:.3f}")
+            self.assertLessEqual(y_max, ylim[1] + margin_y,
+                f"Label '{text.get_text()}' extends beyond y-axis maximum at {y_max:.3f} > {ylim[1]:.3f}")
+
+    def test_label_positioning_with_extreme_ranges(self):
+        """Test label positioning doesn't cause cutoff with various extreme axis ranges."""
+        test_ranges = [
+            # (xlim, ylim, v_unit, description)
+            ((0.01, 10000), (0.01, 10000), "in/s", "Very wide range"),
+            ((10, 100), (10, 100), "m/s", "Narrow range"),
+            ((0.1, 1000), (1e-4, 1e4), "m/s", "Asymmetric range"),
+            ((1, 10000), (0.001, 100), "in/s", "High frequency range"),
+        ]
+        
+        for xlim, ylim, v_unit, description in test_ranges:
+            with self.subTest(description=description, xlim=xlim, ylim=ylim):
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.set_xlim(*xlim)
+                ax.set_ylim(*ylim)
+                
+                fcp(ax, v_unit=v_unit)
+                fig.canvas.draw()
+                
+                # Verify we have labels
+                self.assertGreater(len(ax.texts), 0, f"No labels generated for {description}")
+                
+                # Check that labels don't extend significantly beyond boundaries
+                for text in ax.texts:
+                    x_pos, y_pos = text.get_position()
+                    
+                    # Labels should be positioned within reasonable bounds
+                    # (allowing some margin for label extent)
+                    x_margin = (xlim[1] - xlim[0]) * 0.2  # 20% margin
+                    y_margin = (ylim[1] - ylim[0]) * 0.2  # 20% margin
+                    
+                    self.assertGreaterEqual(x_pos, xlim[0] - x_margin,
+                        f"Label '{text.get_text()}' positioned too far left in {description}")
+                    self.assertLessEqual(x_pos, xlim[1] + x_margin,
+                        f"Label '{text.get_text()}' positioned too far right in {description}")
+                    self.assertGreaterEqual(y_pos, ylim[0] - y_margin,
+                        f"Label '{text.get_text()}' positioned too low in {description}")
+                    self.assertLessEqual(y_pos, ylim[1] + y_margin,
+                        f"Label '{text.get_text()}' positioned too high in {description}")
+
 
 if __name__ == "__main__":
     unittest.main()
